@@ -2,14 +2,15 @@
 <html lang="zh-TW">
 <head>
     <meta charset="UTF-8">
-    <title>字彙學習網站</title>
+    <title>MY VOCAB-COLLECTION</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <style>
         body {
             margin: 0;
             font-family: Arial, sans-serif;
         }
         .header {
-            background-color: navy;
+            background-color: #20B2AA; /* 湖水綠 */
             color: white;
             padding: 10px;
             text-align: center;
@@ -52,6 +53,22 @@
             border: 1px solid white;
             padding: 10px;
         }
+        .vocab-item {
+            display: flex;
+            align-items: center;
+            margin-bottom: 5px;
+        }
+        .vocab-item span {
+            flex-grow: 1;
+        }
+        .delete-btn {
+            padding: 2px 8px;
+            background-color: #ff4444;
+            border: none;
+            color: white;
+            cursor: pointer;
+            margin-left: 10px;
+        }
         .test-section {
             background-color: white;
             padding: 20px;
@@ -79,12 +96,21 @@
         button {
             padding: 8px 20px;
             cursor: pointer;
+            margin-right: 10px;
+        }
+        #wrong-answers {
+            margin-top: 20px;
+            border: 1px solid #ccc;
+            padding: 10px;
+        }
+        #wrong-answers.hidden {
+            display: none;
         }
     </style>
 </head>
 <body>
     <div class="header">
-        <h1>字彙學習網站</h1>
+        <h1>MY VOCAB-COLLECTION</h1>
     </div>
     <div class="main-container">
         <div class="left-column">
@@ -97,9 +123,11 @@
                 <input type="text" id="chinese-input">
             </div>
             <button id="submit-btn" disabled>送出</button>
+            <button id="clear-all">清除所有單字</button>
         </div>
         <div class="right-column">
             <h2>字彙寶庫</h2>
+            <button id="download-vocab">下載字彙寶庫為 PDF</button>
             <div id="vocabulary-bank"></div>
         </div>
     </div>
@@ -109,24 +137,69 @@
             <div class="test-box">
                 <div id="test-word"></div>
                 <button id="start-test">開始檢測</button>
+                <button id="finish-test">完成檢測</button>
             </div>
             <div class="test-box">
                 <div class="options" id="options"></div>
                 <button id="test-submit">送出</button>
             </div>
         </div>
+        <div id="wrong-answers" class="hidden">
+            <h3>錯題列表</h3>
+            <button id="download-wrong">下載錯題列表為 PDF</button>
+            <div id="wrong-list"></div>
+            <button id="clear-wrong">清空錯題列表</button>
+            <button id="restart-test">重啟測驗</button>
+        </div>
     </div>
 
     <script>
-        const vocabulary = [];
-        const wordCooldown = new Map(); // 記錄單字冷卻次數
+        const { jsPDF } = window.jspdf;
+        let vocabulary = JSON.parse(localStorage.getItem('vocabulary')) || [];
+        const wordCooldown = new Map();
+        let wrongAnswers = JSON.parse(localStorage.getItem('wrongAnswers')) || [];
         let currentTestWord = null;
+
+        // 初始化字彙寶庫
+        const vocabBank = document.getElementById('vocabulary-bank');
+        function renderVocabulary() {
+            vocabBank.innerHTML = '';
+            vocabulary.forEach((item, index) => {
+                vocabBank.innerHTML += `
+                    <div class="vocab-item">
+                        <span>${item.english} (${item.chinese})</span>
+                        <button class="delete-btn" data-index="${index}">刪除</button>
+                    </div>
+                `;
+            });
+            document.querySelectorAll('.delete-btn').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    const index = parseInt(e.target.getAttribute('data-index'));
+                    if (confirm(`確定要刪除 "${vocabulary[index].english} (${vocabulary[index].chinese})" 嗎？`)) {
+                        vocabulary.splice(index, 1);
+                        localStorage.setItem('vocabulary', JSON.stringify(vocabulary));
+                        renderVocabulary();
+                        if (currentTestWord && currentTestWord.english === item.english) {
+                            testWord.textContent = '';
+                            optionsDiv.innerHTML = '';
+                            currentTestWord = null;
+                        }
+                    }
+                });
+            });
+        }
+        renderVocabulary();
+
+        const wrongList = document.getElementById('wrong-list');
+        if (wrongAnswers.length > 0) {
+            wrongList.innerHTML = wrongAnswers.map(item => `<p>${item.english} (${item.chinese})</p>`).join('');
+        }
 
         // 輸入區邏輯
         const englishInput = document.getElementById('english-input');
         const chineseInput = document.getElementById('chinese-input');
         const submitBtn = document.getElementById('submit-btn');
-        const vocabBank = document.getElementById('vocabulary-bank');
+        const clearAllBtn = document.getElementById('clear-all');
 
         function checkInputs() {
             submitBtn.disabled = !(englishInput.value.trim() && chineseInput.value.trim());
@@ -140,27 +213,65 @@
             const chinese = chineseInput.value.trim();
             if (english && chinese) {
                 vocabulary.push({ english, chinese });
-                vocabBank.innerHTML += `<p>${english} (${chinese})</p>`;
+                localStorage.setItem('vocabulary', JSON.stringify(vocabulary));
+                renderVocabulary();
                 englishInput.value = '';
                 chineseInput.value = '';
                 submitBtn.disabled = true;
             }
         });
 
+        clearAllBtn.addEventListener('click', () => {
+            if (confirm('確定要清除所有單字嗎？此操作無法復原。')) {
+                vocabulary = [];
+                localStorage.setItem('vocabulary', JSON.stringify(vocabulary));
+                vocabBank.innerHTML = '';
+                testWord.textContent = '字彙寶庫尚未有單字';
+                optionsDiv.innerHTML = '';
+                currentTestWord = null;
+            }
+        });
+
+        // 下載字彙寶庫為 PDF（只保留英文）
+        const downloadVocabBtn = document.getElementById('download-vocab');
+        downloadVocabBtn.addEventListener('click', () => {
+            if (vocabulary.length === 0) {
+                alert('字彙寶庫目前沒有單字可下載！');
+                return;
+            }
+            const doc = new jsPDF();
+            doc.setFontSize(16);
+            doc.text('MY VOCAB-COLLECTION', 10, 10);
+            doc.setFontSize(12);
+            vocabulary.forEach((item, index) => {
+                const yPos = 20 + (index * 10);
+                if (yPos > 280) { // 換頁
+                    doc.addPage();
+                    doc.text(`${item.english}`, 10, 10);
+                } else {
+                    doc.text(`${item.english}`, 10, yPos);
+                }
+            });
+            doc.save('vocabulary-bank.pdf');
+        });
+
         // 檢測區邏輯
         const testWord = document.getElementById('test-word');
         const startTestBtn = document.getElementById('start-test');
+        const finishTestBtn = document.getElementById('finish-test');
         const optionsDiv = document.getElementById('options');
         const testSubmit = document.getElementById('test-submit');
+        const wrongAnswersDiv = document.getElementById('wrong-answers');
+        const clearWrongBtn = document.getElementById('clear-wrong');
+        const restartTestBtn = document.getElementById('restart-test');
+        const downloadWrongBtn = document.getElementById('download-wrong');
 
         function getRandomWord() {
             if (vocabulary.length === 0) return null;
 
-            // 過濾掉冷卻中的單字
             const availableWords = vocabulary.filter(word => !wordCooldown.has(word.english) || wordCooldown.get(word.english) <= 0);
-            if (availableWords.length === 0) return vocabulary[Math.floor(Math.random() * vocabulary.length)]; // 若全在冷卻中，隨機選一個
+            if (availableWords.length === 0) return vocabulary[Math.floor(Math.random() * vocabulary.length)];
 
-            // 均等機率隨機選擇
             return availableWords[Math.floor(Math.random() * availableWords.length)];
         }
 
@@ -172,11 +283,9 @@
                 options.push(otherWords[randomIndex].chinese);
                 otherWords.splice(randomIndex, 1);
             }
-            // 若單字不足 3 個，用 placeholder 填充
             while (options.length < 3) {
                 options.push("選項" + (options.length + 1));
             }
-            // 隨機排序選項
             return options.sort(() => Math.random() - 0.5);
         }
 
@@ -209,13 +318,16 @@
             if (answer === currentTestWord.chinese) {
                 testWord.style.color = 'green';
                 testWord.textContent = '通過';
-                wordCooldown.set(currentTestWord.english, 50); // 設置 50 次冷卻
+                wordCooldown.set(currentTestWord.english, 50);
             } else {
                 testWord.style.color = 'yellow';
                 testWord.textContent = '未通過';
+                if (!wrongAnswers.some(item => item.english === currentTestWord.english)) {
+                    wrongAnswers.push({ english: currentTestWord.english, chinese: currentTestWord.chinese });
+                    localStorage.setItem('wrongAnswers', JSON.stringify(wrongAnswers));
+                }
             }
 
-            // 更新所有單字的冷卻計數
             wordCooldown.forEach((value, key, map) => {
                 if (value > 0) map.set(key, value - 1);
             });
@@ -224,6 +336,53 @@
                 testWord.style.color = 'red';
                 showNextWord();
             }, 1000);
+        });
+
+        finishTestBtn.addEventListener('click', () => {
+            if (wrongAnswers.length > 0) {
+                wrongList.innerHTML = wrongAnswers.map(item => `<p>${item.english} (${item.chinese})</p>`).join('');
+                wrongAnswersDiv.classList.remove('hidden');
+            } else {
+                wrongList.innerHTML = '<p>恭喜！本次檢測無錯題。</p>';
+                wrongAnswersDiv.classList.remove('hidden');
+            }
+            testWord.textContent = '';
+            optionsDiv.innerHTML = '';
+            currentTestWord = null;
+        });
+
+        clearWrongBtn.addEventListener('click', () => {
+            wrongAnswers = [];
+            localStorage.setItem('wrongAnswers', JSON.stringify(wrongAnswers));
+            wrongList.innerHTML = '<p>錯題列表已清空。</p>';
+        });
+
+        restartTestBtn.addEventListener('click', () => {
+            wrongAnswersDiv.classList.add('hidden');
+            wordCooldown.clear();
+            showNextWord();
+        });
+
+        // 下載錯題列表為 PDF（只保留英文）
+        downloadWrongBtn.addEventListener('click', () => {
+            if (wrongAnswers.length === 0) {
+                alert('錯題列表目前沒有內容可下載！');
+                return;
+            }
+            const doc = new jsPDF();
+            doc.setFontSize(16);
+            doc.text('WRONG ANSWERS', 10, 10);
+            doc.setFontSize(12);
+            wrongAnswers.forEach((item, index) => {
+                const yPos = 20 + (index * 10);
+                if (yPos > 280) { // 換頁
+                    doc.addPage();
+                    doc.text(`${item.english}`, 10, 10);
+                } else {
+                    doc.text(`${item.english}`, 10, yPos);
+                }
+            });
+            doc.save('wrong-answers.pdf');
         });
     </script>
 </body>
