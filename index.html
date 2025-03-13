@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <title>字彙學習網站</title>
+    <style>
+        body {
+            margin: 0;
+            font-family: Arial, sans-serif;
+        }
+        .header {
+            background-color: navy;
+            color: white;
+            padding: 10px;
+            text-align: center;
+        }
+        .main-container {
+            background-color: #333333;
+            min-height: calc(100vh - 60px);
+            display: flex;
+            padding: 20px;
+        }
+        .left-column, .right-column {
+            width: 50%;
+            padding: 10px;
+            color: white;
+        }
+        .input-area {
+            margin-bottom: 10px;
+        }
+        .input-area label {
+            display: block;
+            margin-bottom: 5px;
+        }
+        .input-area input {
+            width: 80%;
+            padding: 5px;
+        }
+        #submit-btn {
+            padding: 8px 20px;
+            background-color: #4CAF50;
+            border: none;
+            color: white;
+            cursor: pointer;
+        }
+        #submit-btn:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+        }
+        #vocabulary-bank {
+            min-height: 200px;
+            border: 1px solid white;
+            padding: 10px;
+        }
+        .test-section {
+            background-color: white;
+            padding: 20px;
+            color: black;
+        }
+        .test-container {
+            display: flex;
+            gap: 20px;
+        }
+        .test-box {
+            width: 45%;
+        }
+        #test-word {
+            min-height: 30px;
+            color: red;
+            margin-bottom: 10px;
+        }
+        .options {
+            margin-bottom: 10px;
+        }
+        .options label {
+            display: block;
+            margin: 5px 0;
+        }
+        button {
+            padding: 8px 20px;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>字彙學習網站</h1>
+    </div>
+    <div class="main-container">
+        <div class="left-column">
+            <div class="input-area">
+                <label>請輸入英文</label>
+                <input type="text" id="english-input">
+            </div>
+            <div class="input-area">
+                <label>請輸入中文</label>
+                <input type="text" id="chinese-input">
+            </div>
+            <button id="submit-btn" disabled>送出</button>
+        </div>
+        <div class="right-column">
+            <h2>字彙寶庫</h2>
+            <div id="vocabulary-bank"></div>
+        </div>
+    </div>
+    <div class="test-section">
+        <h2>自我檢測區</h2>
+        <div class="test-container">
+            <div class="test-box">
+                <div id="test-word"></div>
+                <button id="start-test">開始檢測</button>
+            </div>
+            <div class="test-box">
+                <div class="options" id="options"></div>
+                <button id="test-submit">送出</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const vocabulary = [];
+        const wordCooldown = new Map(); // 記錄單字冷卻次數
+        let currentTestWord = null;
+
+        // 輸入區邏輯
+        const englishInput = document.getElementById('english-input');
+        const chineseInput = document.getElementById('chinese-input');
+        const submitBtn = document.getElementById('submit-btn');
+        const vocabBank = document.getElementById('vocabulary-bank');
+
+        function checkInputs() {
+            submitBtn.disabled = !(englishInput.value.trim() && chineseInput.value.trim());
+        }
+
+        englishInput.addEventListener('input', checkInputs);
+        chineseInput.addEventListener('input', checkInputs);
+
+        submitBtn.addEventListener('click', () => {
+            const english = englishInput.value.trim();
+            const chinese = chineseInput.value.trim();
+            if (english && chinese) {
+                vocabulary.push({ english, chinese });
+                vocabBank.innerHTML += `<p>${english} (${chinese})</p>`;
+                englishInput.value = '';
+                chineseInput.value = '';
+                submitBtn.disabled = true;
+            }
+        });
+
+        // 檢測區邏輯
+        const testWord = document.getElementById('test-word');
+        const startTestBtn = document.getElementById('start-test');
+        const optionsDiv = document.getElementById('options');
+        const testSubmit = document.getElementById('test-submit');
+
+        function getRandomWord() {
+            if (vocabulary.length === 0) return null;
+
+            // 過濾掉冷卻中的單字
+            const availableWords = vocabulary.filter(word => !wordCooldown.has(word.english) || wordCooldown.get(word.english) <= 0);
+            if (availableWords.length === 0) return vocabulary[Math.floor(Math.random() * vocabulary.length)]; // 若全在冷卻中，隨機選一個
+
+            // 均等機率隨機選擇
+            return availableWords[Math.floor(Math.random() * availableWords.length)];
+        }
+
+        function getRandomOptions(correctChinese) {
+            const options = [correctChinese];
+            const otherWords = vocabulary.filter(word => word.chinese !== correctChinese);
+            while (options.length < 3 && otherWords.length > 0) {
+                const randomIndex = Math.floor(Math.random() * otherWords.length);
+                options.push(otherWords[randomIndex].chinese);
+                otherWords.splice(randomIndex, 1);
+            }
+            // 若單字不足 3 個，用 placeholder 填充
+            while (options.length < 3) {
+                options.push("選項" + (options.length + 1));
+            }
+            // 隨機排序選項
+            return options.sort(() => Math.random() - 0.5);
+        }
+
+        function showNextWord() {
+            currentTestWord = getRandomWord();
+            if (currentTestWord) {
+                testWord.textContent = currentTestWord.english;
+                const options = getRandomOptions(currentTestWord.chinese);
+                optionsDiv.innerHTML = options.map((opt, index) => `
+                    <label>
+                        <input type="radio" name="option" value="${opt}">
+                        ${opt}
+                    </label>
+                `).join('');
+            } else {
+                testWord.textContent = '字彙寶庫尚未有單字';
+                optionsDiv.innerHTML = '';
+            }
+        }
+
+        startTestBtn.addEventListener('click', showNextWord);
+
+        testSubmit.addEventListener('click', () => {
+            if (!currentTestWord) return;
+
+            const selectedOption = document.querySelector('input[name="option"]:checked');
+            if (!selectedOption) return;
+
+            const answer = selectedOption.value;
+            if (answer === currentTestWord.chinese) {
+                testWord.style.color = 'green';
+                testWord.textContent = '通過';
+                wordCooldown.set(currentTestWord.english, 50); // 設置 50 次冷卻
+            } else {
+                testWord.style.color = 'yellow';
+                testWord.textContent = '未通過';
+            }
+
+            // 更新所有單字的冷卻計數
+            wordCooldown.forEach((value, key, map) => {
+                if (value > 0) map.set(key, value - 1);
+            });
+
+            setTimeout(() => {
+                testWord.style.color = 'red';
+                showNextWord();
+            }, 1000);
+        });
+    </script>
+</body>
+</html>
